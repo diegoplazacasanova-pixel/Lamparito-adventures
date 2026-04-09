@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi página</title>
+</head>
+<body>
+  <h1><!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>L'amparito</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: #f4efe7;
+      color: #2b2b2b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px;
+      gap: 12px;
+    }
+    h1 { margin: 8px 0 0; }
+    .hud {
+      width: min(900px, 96vw);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 14px;
+    }
+    .panel {
+      background: white;
+      border: 2px solid #222;
+      border-radius: 14px;
+      padding: 10px 14px;
+      box-shadow: 0 4px 0 rgba(0,0,0,.08);
+    }
+    canvas {
+      width: min(900px, 96vw);
+      height: auto;
+      border: 3px solid #222;
+      background: #dff0d8;
+      border-radius: 18px;
+      image-rendering: pixelated;
+      box-shadow: 0 10px 30px rgba(0,0,0,.12);
+    }
+    button {
+      border: 2px solid #222;
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .controls {
+      width: min(900px, 96vw);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <h1>L'amparito</h1>
+  <div class="hud">
+    <div class="panel">Comida comida: <strong id="score">0</strong></div>
+    <div class="panel">Ladridos exitosos: <strong id="barks">0</strong></div>
+    <div class="panel">Vidas: <strong id="lives">3</strong></div>
+    <button id="restartBtn">Reiniciar</button>
+  </div>
+  <canvas id="game" width="900" height="520"></canvas>
+  <div class="controls panel">
+    Moverse con flechas o WASD. Barra espaciadora para ladrar. Come toda la comida que puedas. Si una bici, moto, skater u otro perro te toca, pierdes vida. Si le ladras a tiempo, se asusta y desaparece.
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const scoreEl = document.getElementById('score');
+    const barksEl = document.getElementById('barks');
+    const livesEl = document.getElementById('lives');
+    const restartBtn = document.getElementById('restartBtn');
+
+    const keys = {};
+    const world = {
+      w: canvas.width,
+      h: canvas.height,
+      score: 0,
+      barks: 0,
+      lives: 3,
+      gameOver: false,
+      foods: [],
+      enemies: [],
+      barkWaves: [],
+      particles: [],
+      foodTimer: 0,
+      enemyTimer: 0,
+      time: 0,
+    };
+
+    const player = {
+      x: 120,
+      y: 260,
+      r: 22,
+      speed: 3.8,
+      barkCooldown: 0,
+      invincible: 0,
+    };
+
+    window.addEventListener('keydown', (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.key === ' ') {
+        e.preventDefault();
+        bark();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    restartBtn.addEventListener('click', resetGame);
+
+    function resetGame() {
+      world.score = 0;
+      world.barks = 0;
+      world.lives = 3;
+      world.gameOver = false;
+      world.foods = [];
+      world.enemies = [];
+      world.barkWaves = [];
+      world.particles = [];
+      world.foodTimer = 0;
+      world.enemyTimer = 0;
+      world.time = 0;
+      player.x = 120;
+      player.y = 260;
+      player.barkCooldown = 0;
+      player.invincible = 0;
+      updateHud();
+      for (let i = 0; i < 6; i++) spawnFood();
+    }
+
+    function updateHud() {
+      scoreEl.textContent = world.score;
+      barksEl.textContent = world.barks;
+      livesEl.textContent = world.lives;
+    }
+
+    function rand(min, max) {
+      return Math.random() * (max - min) + min;
+    }
+
+    function dist(a, b) {
+      return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    function spawnFood() {
+      const types = ['🍖', '🧀', '🍗', '🥪', '🍪'];
+      world.foods.push({
+        x: rand(40, world.w - 40),
+        y: rand(40, world.h - 40),
+        r: 14,
+        emoji: types[Math.floor(Math.random() * types.length)],
+      });
+    }
+
+    function spawnEnemy() {
+      const types = [
+        { kind: 'dog', emoji: '🐕', speed: rand(1.8, 2.8) },
+        { kind: 'bike', emoji: '🚲', speed: rand(2.6, 3.5) },
+        { kind: 'moto', emoji: '🛵', speed: rand(3.1, 4.0) },
+        { kind: 'skater', emoji: '🛹', speed: rand(2.4, 3.4) },
+      ];
+      const choice = types[Math.floor(Math.random() * types.length)];
+      const fromLeft = Math.random() < 0.5;
+      world.enemies.push({
+        x: fromLeft ? -40 : world.w + 40,
+        y: rand(60, world.h - 60),
+        vx: fromLeft ? choice.speed : -choice.speed,
+        vy: rand(-0.35, 0.35),
+        r: 20,
+        kind: choice.kind,
+        emoji: choice.emoji,
+      });
+    }
+
+    function bark() {
+      if (world.gameOver) return;
+      if (player.barkCooldown > 0) return;
+      world.barkWaves.push({ x: player.x, y: player.y, r: 10, maxR: 110, life: 18 });
+      player.barkCooldown = 22;
+    }
+
+    function loseLife() {
+      if (player.invincible > 0 || world.gameOver) return;
+      world.lives -= 1;
+      player.invincible = 70;
+      updateHud();
+      if (world.lives <= 0) world.gameOver = true;
+    }
+
+    function update() {
+      if (world.gameOver) return;
+      world.time++;
+      world.foodTimer++;
+      world.enemyTimer++;
+
+      if (player.barkCooldown > 0) player.barkCooldown--;
+      if (player.invincible > 0) player.invincible--;
+
+      let dx = 0;
+      let dy = 0;
+      if (keys['arrowleft'] || keys['a']) dx -= 1;
+      if (keys['arrowright'] || keys['d']) dx += 1;
+      if (keys['arrowup'] || keys['w']) dy -= 1;
+      if (keys['arrowdown'] || keys['s']) dy += 1;
+
+      if (dx || dy) {
+        const len = Math.hypot(dx, dy) || 1;
+        player.x += (dx / len) * player.speed;
+        player.y += (dy / len) * player.speed;
+      }
+
+      player.x = Math.max(28, Math.min(world.w - 28, player.x));
+      player.y = Math.max(32, Math.min(world.h - 28, player.y));
+
+      if (world.foodTimer > 70) {
+        world.foodTimer = 0;
+        if (world.foods.length < 12) spawnFood();
+      }
+
+      if (world.enemyTimer > 95) {
+        world.enemyTimer = 0;
+        if (world.enemies.length < 6) spawnEnemy();
+      }
+
+      world.foods = world.foods.filter(food => {
+        if (dist(player, food) < player.r + food.r) {
+          world.score += 1;
+          updateHud();
+          burst(food.x, food.y, 'food');
+          return false;
+        }
+        return true;
+      });
+
+      world.enemies = world.enemies.filter(enemy => {
+        enemy.x += enemy.vx;
+        enemy.y += enemy.vy;
+
+        if (enemy.y < 40 || enemy.y > world.h - 40) enemy.vy *= -1;
+
+        if (dist(player, enemy) < player.r + enemy.r) {
+          loseLife();
+        }
+
+        if (enemy.x < -80 || enemy.x > world.w + 80) return false;
+        return true;
+      });
+
+      world.barkWaves = world.barkWaves.filter(wave => {
+        wave.r += 5;
+        wave.life--;
+        for (let i = world.enemies.length - 1; i >= 0; i--) {
+          const enemy = world.enemies[i];
+          if (dist(wave, enemy) < wave.r + enemy.r) {
+            burst(enemy.x, enemy.y, 'bark');
+            world.enemies.splice(i, 1);
+            world.barks += 1;
+            updateHud();
+          }
+        }
+        return wave.life > 0 && wave.r < wave.maxR;
+      });
+
+      world.particles = world.particles.filter(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        return p.life > 0;
+      });
+    }
+
+    function burst(x, y, type) {
+      const amount = type === 'food' ? 8 : 14;
+      for (let i = 0; i < amount; i++) {
+        world.particles.push({
+          x, y,
+          vx: rand(-2.2, 2.2),
+          vy: rand(-2.2, 2.2),
+          life: Math.floor(rand(12, 26)),
+          type,
+        });
+      }
+    }
+
+    function drawBackground() {
+      ctx.fillStyle = '#dff0d8';
+      ctx.fillRect(0, 0, world.w, world.h);
+
+      ctx.fillStyle = '#c9e2b3';
+      for (let x = 0; x < world.w; x += 80) {
+        ctx.fillRect(x, 400 + Math.sin((x + world.time) * 0.01) * 6, 42, 120);
+      }
+
+      ctx.fillStyle = '#b4d79e';
+      ctx.fillRect(0, 430, world.w, 90);
+
+      ctx.strokeStyle = '#b7b7b7';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 110);
+      ctx.lineTo(world.w, 110);
+      ctx.stroke();
+
+      ctx.setLineDash([18, 16]);
+      ctx.strokeStyle = '#e8e8e8';
+      ctx.beginPath();
+      ctx.moveTo(0, 110);
+      ctx.lineTo(world.w, 110);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawPlayer() {
+      ctx.save();
+      if (player.invincible > 0 && Math.floor(player.invincible / 5) % 2 === 0) {
+        ctx.globalAlpha = 0.45;
+      }
+
+      ctx.font = '34px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🐕', player.x, player.y + 2);
+
+      ctx.beginPath();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 5;
+      ctx.arc(player.x + 2, player.y - 8, 20, 0.2, Math.PI * 1.8);
+      ctx.stroke();
+
+      ctx.fillStyle = '#1f1f1f';
+      ctx.font = '11px Arial';
+      ctx.fillText("L'amparito", player.x, player.y + 34);
+
+      ctx.restore();
+    }
+
+    function drawFoods() {
+      ctx.font = '24px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const food of world.foods) {
+        ctx.fillText(food.emoji, food.x, food.y);
+      }
+    }
+
+    function drawEnemies() {
+      ctx.font = '28px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (const enemy of world.enemies) {
+        ctx.fillText(enemy.emoji, enemy.x, enemy.y);
+      }
+    }
+
+    function drawBarks() {
+      for (const wave of world.barkWaves) {
+        ctx.beginPath();
+        ctx.arc(wave.x, wave.y, wave.r, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(70,70,70,${wave.life / 18})`;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.font = '18px Arial';
+        ctx.fillStyle = `rgba(30,30,30,${wave.life / 18})`;
+        ctx.fillText('GUAU', wave.x, wave.y - wave.r - 8);
+      }
+    }
+
+    function drawParticles() {
+      for (const p of world.particles) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.type === 'food' ? 3 : 4, 0, Math.PI * 2);
+        ctx.fillStyle = p.type === 'food' ? 'rgba(160, 82, 45, 0.7)' : 'rgba(80,80,80,0.55)';
+        ctx.fill();
+      }
+    }
+
+    function drawGameOver() {
+      if (!world.gameOver) return;
+      ctx.fillStyle = 'rgba(0,0,0,.32)';
+      ctx.fillRect(0, 0, world.w, world.h);
+      ctx.fillStyle = '#fff';
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 42px Arial';
+      ctx.fillText('Fin del paseo de L\'amparito', world.w / 2, world.h / 2 - 20);
+      ctx.font = '22px Arial';
+      ctx.fillText(`Comida comida: ${world.score} · Ladridos exitosos: ${world.barks}`, world.w / 2, world.h / 2 + 24);
+      ctx.font = '18px Arial';
+      ctx.fillText('Aprieta Reiniciar para volver a correr', world.w / 2, world.h / 2 + 60);
+    }
+
+    function draw() {
+      drawBackground();
+      drawFoods();
+      drawEnemies();
+      drawBarks();
+      drawParticles();
+      drawPlayer();
+      drawGameOver();
+    }
+
+    function loop() {
+      update();
+      draw();
+      requestAnimationFrame(loop);
+    }
+
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
+</h1>
+</body>
+</html>
